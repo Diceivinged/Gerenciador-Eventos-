@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Gerenciador de Eventos CRUD</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; margin: 40px; background-color: #e9ecef; }
+        .container { max-width: 800px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+        h2 { color: #343a40; border-bottom: 2px solid #dee2e6; padding-bottom: 10px; }
+        input, button { width: 100%; padding: 12px; margin: 8px 0; border: 1px solid #ced4da; border-radius: 6px; box-sizing: border-box; }
+
+        /* Cores dos Botões */
+        #btnSalvar { background-color: #28a745; color: white; border: none; cursor: pointer; font-weight: bold; transition: 0.3s; }
+        #btnSalvar:hover { background-color: #218838; }
+        .btn-edit { background-color: #007bff; color: white; border: none; cursor: pointer; padding: 5px 10px; border-radius: 4px; margin-right: 5px; }
+        .btn-delete { background-color: #dc3545; color: white; border: none; cursor: pointer; padding: 5px 10px; border-radius: 4px; }
+
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background-color: #f8f9fa; color: #495057; }
+        tr:hover { background-color: #f1f3f5; }
+        .evento-passado { background-color: #f8f9fa; color: #adb5bd; text-decoration: line-through; }
+        /* Cores por Categoria */
+        .cat-trabalho { border-left: 5px solid #007bff; }
+        .cat-lazer { border-left: 5px solid #28a745; }
+        .cat-outros { border-left: 5px solid #6c757d; }
+
+        /* Ajuste nos botões para ícones */
+        .btn-edit, .btn-delete {
+            width: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2><span id="tituloForm">Cadastrar Evento</span></h2>
+    <input type="hidden" id="eventoId">
+    <input type="text" id="nome" placeholder="Nome do Evento">
+    <input type="text" id="endereco" placeholder="Endereço">
+    <input type="text" id="categoria" placeholder="Categoria">
+    <input type="datetime-local" id="horario" oninput="if(this.value.length > 16) this.value = this.value.slice(0, 16)">
+    <input type="text" id="descricao" placeholder="Descrição">
+    <input type="text" id="busca" placeholder="🔍 Buscar evento pelo nome..." onkeyup="filtrarTabela()">
+    <button id="btnSalvar" onclick="salvar()">Salvar Evento</button>
+    <button id="btnCancelar" onclick="limparFormulario()" style="display:none; background-color: #6c757d;">Cancelar Edição</button>
+
+    <h3>Lista de Eventos</h3>
+    <table id="tabelaEventos">
+        <thead>
+        <tr>
+            <th>Nome</th>
+            <th>Status</th>
+            <th>Ações</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<script>
+    // 1. CARREGAR EVENTOS (Com ícones e cores)
+    async function carregarEventos() {
+        try {
+            const response = await fetch('/api/eventos');
+            const eventos = await response.json();
+            const corpoTabela = document.querySelector('#tabelaEventos tbody');
+            corpoTabela.innerHTML = '';
+
+            eventos.forEach(ev => {
+                const dataEvento = new Date(ev.horario);
+                const hoje = new Date();
+                const classePassado = dataEvento < hoje ? 'evento-passado' : '';
+
+                // Lógica de cores por categoria
+                const cat = (ev.categoria || '').toLowerCase();
+                let classeCategoria = 'cat-outros';
+                if (cat.includes('trabalho')) classeCategoria = 'cat-trabalho';
+                if (cat.includes('lazer')) classeCategoria = 'cat-lazer';
+
+                // Tratamento para não quebrar o HTML com aspas
+                const evString = JSON.stringify(ev).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+                corpoTabela.innerHTML += `
+                    <tr class="${classePassado} ${classeCategoria}">
+                        <td>
+                            <strong>${ev.nome || 'Sem Nome'}</strong><br>
+                            <small style="color: #666;">${ev.categoria || 'Geral'}</small>
+                        </td>
+                        <td>${ev.status || 'Pendente'}</td>
+                        <td>
+                            <button class="btn-edit" onclick='prepararEdicao(${evString})'>
+                                <i class="fas fa-edit"></i> Editar
+                            </button>
+                            <button class="btn-delete" onclick="excluirEvento(${ev.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        } catch (erro) {
+            console.error("Erro ao carregar eventos:", erro);
+        }
+    }
+
+    // 2. PREPARAR EDIÇÃO
+    function prepararEdicao(evento) {
+        document.getElementById('eventoId').value = evento.id;
+        document.getElementById('nome').value = evento.nome;
+        document.getElementById('endereco').value = evento.endereco;
+        document.getElementById('categoria').value = evento.categoria;
+        document.getElementById('horario').value = evento.horario;
+        document.getElementById('descricao').value = evento.descricao;
+
+        document.getElementById('btnSalvar').innerText = "Atualizar Evento";
+        document.getElementById('btnSalvar').style.backgroundColor = "#ffc107";
+        document.getElementById('btnCancelar').style.display = "inline-block";
+    }
+
+    // 3. SALVAR OU ATUALIZAR (Com Validação no topo)
+    async function salvar() {
+        const nome = document.getElementById('nome').value;
+        const horario = document.getElementById('horario').value;
+        const id = document.getElementById('eventoId').value;
+
+        // VALIDAÇÃO DE SEGURANÇA
+        if (!nome || !horario) {
+            alert("⚠️ Por favor, preencha o Nome e o Horário!");
+            return;
+        }
+
+        const evento = {
+            nome: nome,
+            horario: horario,
+            endereco: document.getElementById('endereco').value,
+            categoria: document.getElementById('categoria').value,
+            descricao: document.getElementById('descricao').value
+        };
+
+        const metodo = id ? 'PUT' : 'POST';
+        const url = id ? `/api/eventos/${id}` : '/api/eventos';
+
+        try {
+            const response = await fetch(url, {
+                method: metodo,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(evento)
+            });
+
+            if (response.ok) {
+                alert(id ? 'Evento atualizado!' : 'Evento salvo!');
+                limparFormulario();
+                carregarEventos();
+            }
+        } catch (error) {
+            console.error("Erro na requisição:", error);
+        }
+    }
+
+    // 4. EXCLUIR
+    async function excluirEvento(id) {
+        if (confirm('Deseja excluir este evento?')) {
+            await fetch(`/api/eventos/${id}`, { method: 'DELETE' });
+            carregarEventos();
+        }
+    }
+
+    // 5. LIMPAR FORMULÁRIO
+    function limparFormulario() {
+        document.getElementById('eventoId').value = '';
+        document.getElementById('nome').value = '';
+        document.getElementById('endereco').value = '';
+        document.getElementById('categoria').value = '';
+        document.getElementById('horario').value = '';
+        document.getElementById('descricao').value = '';
+
+        document.getElementById('btnSalvar').innerText = "Salvar Evento";
+        document.getElementById('btnSalvar').style.backgroundColor = "#28a745";
+        document.getElementById('btnCancelar').style.display = "none";
+    }
+
+    function filtrarTabela() {
+        const termo = document.getElementById('busca').value.toLowerCase();
+        const linhas = document.querySelectorAll('#tabelaEventos tbody tr');
+
+        linhas.forEach(linha => {
+            const nomeEvento = linha.querySelector('td strong').innerText.toLowerCase();
+            if (nomeEvento.includes(termo)) {
+                linha.style.display = "";
+            } else {
+                linha.style.display = "none";
+            }
+        });
+    }
+
+    // Inicializa a tabela
+    carregarEventos();
+</script>
+</body>
+</html>
